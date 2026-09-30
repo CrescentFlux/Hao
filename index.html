@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Particle Field 粒子交互场</title>
+<title>Hao · Particle Field</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #05070d; }
@@ -36,16 +36,24 @@ function resize() {
   H = canvas.height = window.innerHeight;
 }
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize', () => {
+  resize();
+  buildTargets();
+  initHaoParticles();
+});
 
 // 鼠标
-const mouse = { x: W / 2, y: H / 2, active: false };
+const mouse = { x: -9999, y: -9999, active: false };
 window.addEventListener('mousemove', e => {
   mouse.x = e.clientX;
   mouse.y = e.clientY;
   mouse.active = true;
 });
-window.addEventListener('mouseleave', () => mouse.active = false);
+window.addEventListener('mouseleave', () => {
+  mouse.active = false;
+  mouse.x = -9999;
+  mouse.y = -9999;
+});
 
 // 触摸
 window.addEventListener('touchmove', e => {
@@ -62,9 +70,34 @@ window.addEventListener('touchstart', e => {
   burst(mouse.x, mouse.y);
 }, { passive: true });
 
+// 采样 hao 文字
+let targets = [];
+function buildTargets() {
+  targets = [];
+  const off = document.createElement('canvas');
+  off.width = W;
+  off.height = H;
+  const o = off.getContext('2d');
+  const fontSize = Math.min(W, H) * 0.38;
+  o.fillStyle = '#fff';
+  o.font = `bold ${fontSize}px sans-serif`;
+  o.textAlign = 'center';
+  o.textBaseline = 'middle';
+  o.fillText('hao', W / 2, H / 2);
+  const data = o.getImageData(0, 0, W, H).data;
+  const gap = 5;
+  for (let y = 0; y < H; y += gap) {
+    for (let x = 0; x < W; x += gap) {
+      if (data[(y * W + x) * 4 + 3] > 128) {
+        targets.push({ x, y });
+      }
+    }
+  }
+}
+
 // 粒子
 const particles = [];
-const MAX = 600;
+const MAX = 2500;
 
 class Particle {
   constructor(x, y) {
@@ -77,40 +110,60 @@ class Particle {
     this.life = 1;
     this.decay = Math.random() * 0.008 + 0.003;
     this.size = Math.random() * 2 + 1;
-    this.hue = 190 + Math.random() * 40; // 蓝青色系
+    this.hue = 190 + Math.random() * 40;
+    this.isHao = false;
+    this.tx = x;
+    this.ty = y;
   }
   update() {
-    // 鼠标吸引
     if (mouse.active) {
-      const dx = mouse.x - this.x;
-      const dy = mouse.y - this.y;
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 180 && dist > 0.1) {
-        const force = (180 - dist) / 180 * 0.06;
+      if (dist < 120 && dist > 0.1) {
+        const force = (120 - dist) / 120 * 1.0;
         this.vx += (dx / dist) * force;
         this.vy += (dy / dist) * force;
       }
+    }
+    if (this.isHao) {
+      this.vx += (this.tx - this.x) * 0.008;
+      this.vy += (this.ty - this.y) * 0.008;
     }
     this.vx *= 0.985;
     this.vy *= 0.985;
     this.x += this.vx;
     this.y += this.vy;
-    this.life -= this.decay;
+    if (!this.isHao) this.life -= this.decay;
   }
   draw() {
-    const alpha = Math.max(this.life, 0);
+    const alpha = this.isHao ? 0.9 : Math.max(this.life, 0);
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size * alpha, 0, Math.PI * 2);
+    ctx.arc(this.x, this.y, this.size * (this.isHao ? 1 : alpha), 0, Math.PI * 2);
     ctx.fillStyle = `hsla(${this.hue}, 90%, 65%, ${alpha})`;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 14;
     ctx.shadowColor = `hsla(${this.hue}, 90%, 65%, ${alpha * 0.8})`;
     ctx.fill();
   }
 }
 
-// 点击爆发
+// hao 文字粒子
+function initHaoParticles() {
+  particles.length = 0;
+  targets.forEach(t => {
+    const p = new Particle(Math.random() * W, Math.random() * H);
+    p.tx = t.x;
+    p.ty = t.y;
+    p.isHao = true;
+    p.hue = 190 + (t.x / W) * 80;
+    p.size = Math.random() * 1.5 + 1;
+    particles.push(p);
+  });
+}
+
+// 点击烟花（保留原来的高级手感）
 function burst(x, y) {
-  const count = 60;
+  const count = 80;
   for (let i = 0; i < count; i++) {
     if (particles.length >= MAX) particles.shift();
     const p = new Particle(x, y);
@@ -119,18 +172,17 @@ function burst(x, y) {
     p.vx = Math.cos(angle) * speed;
     p.vy = Math.sin(angle) * speed;
     p.decay = Math.random() * 0.015 + 0.008;
+    p.size = Math.random() * 2 + 1;
+    p.hue = 180 + Math.random() * 100;
     particles.push(p);
   }
 }
 window.addEventListener('click', e => burst(e.clientX, e.clientY));
 
-// 持续生成
+// 持续生成漂浮粒子
 function spawn() {
   if (particles.length < MAX) {
-    const p = new Particle(
-      Math.random() * W,
-      Math.random() * H
-    );
+    const p = new Particle(Math.random() * W, Math.random() * H);
     p.decay = Math.random() * 0.004 + 0.002;
     particles.push(p);
   }
@@ -149,15 +201,16 @@ function loop() {
     const p = particles[i];
     p.update();
     p.draw();
-    if (p.life <= 0) particles.splice(i, 1);
+    if (!p.isHao && p.life <= 0) particles.splice(i, 1);
   }
   ctx.shadowBlur = 0;
   requestAnimationFrame(loop);
 }
 
-// 初始生成一批
-for (let i = 0; i < 200; i++) spawn();
-
+// 启动
+buildTargets();
+initHaoParticles();
+for (let i = 0; i < 150; i++) spawn();
 loop();
 </script>
 </body>
